@@ -2021,18 +2021,17 @@ class Stats {
           next_report_ += FLAGS_stats_interval;
 
         } else {
-
-          fprintf(stderr,
-                  "%s ... thread %d: (%" PRIu64 ",%" PRIu64 ") ops and "
-                  "(%.1f,%.1f) ops/second in (%.6f,%.6f) seconds\n",
-                  FLAGS_env->TimeToString(now/1000000).c_str(),
-                  id_,
+          auto report = fopen("/tmp/detail.txt", "at");
+          fprintf(report,
+                  "%" PRIu64 " %" PRIu64 " "
+                  "%.1f %.1f %.6f %.6f\n",
                   done_ - last_report_done_, done_,
                   (done_ - last_report_done_) /
                   (usecs_since_last / 1000000.0),
                   done_ / ((now - start_) / 1000000.0),
                   (now - last_report_finish_) / 1000000.0,
                   (now - start_) / 1000000.0);
+	  fclose(report);
 
           if (id_ == 0 && FLAGS_stats_per_interval) {
             std::string stats;
