@@ -124,7 +124,7 @@ class Mutex {
   friend class CondVar;
   pthread_mutex_t mu_;
 #ifndef NDEBUG
-  bool locked_;
+  bool locked_ = false;
 #endif
 };
 
@@ -167,7 +167,7 @@ static inline void AsmVolatilePause() {
 #if defined(__i386__) || defined(__x86_64__)
   asm volatile("pause");
 #elif defined(__aarch64__)
-  asm volatile("wfe");
+  asm volatile("yield");
 #elif defined(__powerpc64__)
   asm volatile("or 27,27,27");
 #endif

@@ -5,11 +5,13 @@
 
 #ifndef ROCKSDB_LITE
 
+#include "rocksdb/sst_file_reader.h"
+
 #include <cinttypes>
 
 #include "port/stack_trace.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
-#include "rocksdb/sst_file_reader.h"
 #include "rocksdb/sst_file_writer.h"
 #include "table/sst_file_writer_collectors.h"
 #include "test_util/testharness.h"
@@ -37,14 +39,8 @@ class SstFileReaderTest : public testing::Test {
     sst_name_ = test::PerThreadDBPath("sst_file");
 
     Env* base_env = Env::Default();
-    const char* test_env_uri = getenv("TEST_ENV_URI");
-    if(test_env_uri) {
-      Env* test_env = nullptr;
-      Status s = Env::LoadEnv(test_env_uri, &test_env, &env_guard_);
-      base_env = test_env;
-      EXPECT_OK(s);
-      EXPECT_NE(Env::Default(), base_env);
-    }
+    EXPECT_OK(
+        test::CreateEnvFromSystem(ConfigOptions(), &base_env, &env_guard_));
     EXPECT_NE(nullptr, base_env);
     env_ = base_env;
     options_.env = env_;
@@ -90,6 +86,9 @@ class SstFileReaderTest : public testing::Test {
     if (check_global_seqno) {
       auto properties = reader.GetTableProperties();
       ASSERT_TRUE(properties);
+      std::string hostname;
+      ASSERT_OK(env_->GetHostNameString(&hostname));
+      ASSERT_EQ(properties->db_host_id, hostname);
       auto& user_properties = properties->user_collected_properties;
       ASSERT_TRUE(
           user_properties.count(ExternalSstFilePropertyNames::kGlobalSeqno));
@@ -126,6 +125,31 @@ TEST_F(SstFileReaderTest, Uint64Comparator) {
     keys.emplace_back(EncodeAsUint64(i));
   }
   CreateFileAndCheck(keys);
+}
+
+TEST_F(SstFileReaderTest, ReadOptionsOutOfScope) {
+  // Repro a bug where the SstFileReader depended on its configured ReadOptions
+  // outliving it.
+  options_.comparator = test::Uint64Comparator();
+  std::vector<std::string> keys;
+  for (uint64_t i = 0; i < kNumKeys; i++) {
+    keys.emplace_back(EncodeAsUint64(i));
+  }
+  CreateFile(sst_name_, keys);
+
+  SstFileReader reader(options_);
+  ASSERT_OK(reader.Open(sst_name_));
+  std::unique_ptr<Iterator> iter;
+  {
+    // Make sure ReadOptions go out of scope ASAP so we know the iterator
+    // operations do not depend on it.
+    ReadOptions ropts;
+    iter.reset(reader.NewIterator(ropts));
+  }
+  iter->SeekToFirst();
+  while (iter->Valid()) {
+    iter->Next();
+  }
 }
 
 TEST_F(SstFileReaderTest, ReadFileWithGlobalSeqno) {

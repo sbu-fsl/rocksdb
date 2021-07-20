@@ -15,6 +15,42 @@
 #include <gtest/gtest.h>
 #endif
 
+// A "skipped" test has a specific meaning in Facebook infrastructure: the
+// test is in good shape and should be run, but something about the
+// compilation or execution environment means the test cannot be run.
+// Specifically, there is a hole in intended testing if any
+// parameterization of a test (e.g. Foo/FooTest.Bar/42) is skipped for all
+// tested build configurations/platforms/etc.
+//
+// If GTEST_SKIP is available, use it. Otherwise, define skip as success.
+//
+// The GTEST macros do not seem to print the message, even with -verbose,
+// so these print to stderr. Note that these do not exit the test themselves;
+// calling code should 'return' or similar from the test.
+#ifdef GTEST_SKIP_
+#define ROCKSDB_GTEST_SKIP(m)          \
+  do {                                 \
+    fputs("SKIPPED: " m "\n", stderr); \
+    GTEST_SKIP_(m);                    \
+  } while (false) /* user ; */
+#else
+#define ROCKSDB_GTEST_SKIP(m)          \
+  do {                                 \
+    fputs("SKIPPED: " m "\n", stderr); \
+    GTEST_SUCCESS_("SKIPPED: " m);     \
+  } while (false) /* user ; */
+#endif
+
+// We add "bypass" as an alternative to ROCKSDB_GTEST_SKIP that is allowed to
+// be a permanent condition, e.g. for intentionally omitting or disabling some
+// parameterizations for some tests. (Use _DISABLED at the end of the test
+// name to disable an entire test.)
+#define ROCKSDB_GTEST_BYPASS(m)         \
+  do {                                  \
+    fputs("BYPASSED: " m "\n", stderr); \
+    GTEST_SUCCESS_("BYPASSED: " m);     \
+  } while (false) /* user ; */
+
 #include <string>
 #include "rocksdb/env.h"
 
@@ -43,18 +79,4 @@ int RandomSeed();
   EXPECT_PRED_FORMAT1(ROCKSDB_NAMESPACE::test::AssertStatus, s)
 #define EXPECT_NOK(s) EXPECT_FALSE((s).ok())
 }  // namespace test
-
-// Callback sync point for any read IO errors that should be ignored by
-// the fault injection framework
-#ifdef NDEBUG
-// Disable in release mode
-#define IGNORE_STATUS_IF_ERROR(_status_)
-#else
-#define IGNORE_STATUS_IF_ERROR(_status_)          \
-{                                                 \
-  if (!_status_.ok()) {                           \
-    TEST_SYNC_POINT("FaultInjectionIgnoreError"); \
-  }                                               \
-}
-#endif // NDEBUG
 }  // namespace ROCKSDB_NAMESPACE

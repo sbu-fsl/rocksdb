@@ -111,8 +111,16 @@ std::string UnescapeOptionString(const std::string& escaped_string);
 
 std::string trim(const std::string& str);
 
+// Returns true if "string" ends with "pattern"
+bool EndsWith(const std::string& string, const std::string& pattern);
+
+// Returns true if "string" starts with "pattern"
+bool StartsWith(const std::string& string, const std::string& pattern);
+
 #ifndef ROCKSDB_LITE
 bool ParseBoolean(const std::string& type, const std::string& value);
+
+uint8_t ParseUint8(const std::string& value);
 
 uint32_t ParseUint32(const std::string& value);
 
@@ -134,5 +142,9 @@ std::vector<int> ParseVectorInt(const std::string& value);
 bool SerializeIntVector(const std::vector<int>& vec, std::string* value);
 
 extern const std::string kNullptrString;
+
+// errnoStr() function returns a string that describes the error code passed in
+// the argument err
+extern std::string errnoStr(int err);
 
 }  // namespace ROCKSDB_NAMESPACE

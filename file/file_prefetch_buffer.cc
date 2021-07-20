@@ -17,17 +17,18 @@
 #include "monitoring/iostats_context_imp.h"
 #include "port/port.h"
 #include "test_util/sync_point.h"
-#include "test_util/testharness.h"
 #include "util/random.h"
 #include "util/rate_limiter.h"
 
 namespace ROCKSDB_NAMESPACE {
-Status FilePrefetchBuffer::Prefetch(RandomAccessFileReader* reader,
+Status FilePrefetchBuffer::Prefetch(const IOOptions& opts,
+                                    RandomAccessFileReader* reader,
                                     uint64_t offset, size_t n,
                                     bool for_compaction) {
   if (!enable_ || reader == nullptr) {
     return Status::OK();
   }
+  TEST_SYNC_POINT("FilePrefetchBuffer::Prefetch:Start");
   size_t alignment = reader->file()->GetRequiredBufferAlignment();
   size_t offset_ = static_cast<size_t>(offset);
   uint64_t rounddown_offset = Rounddown(offset_, alignment);
@@ -88,24 +89,28 @@ Status FilePrefetchBuffer::Prefetch(RandomAccessFileReader* reader,
 
   Slice result;
   size_t read_len = static_cast<size_t>(roundup_len - chunk_len);
-  s = reader->Read(IOOptions(), rounddown_offset + chunk_len, read_len, &result,
+  s = reader->Read(opts, rounddown_offset + chunk_len, read_len, &result,
                    buffer_.BufferStart() + chunk_len, nullptr, for_compaction);
+  if (!s.ok()) {
+    return s;
+  }
+
 #ifndef NDEBUG
-  if (!s.ok() || result.size() < read_len) {
+  if (result.size() < read_len) {
     // Fake an IO error to force db_stress fault injection to ignore
     // truncated read errors
     IGNORE_STATUS_IF_ERROR(Status::IOError());
   }
 #endif
-  if (s.ok()) {
-    buffer_offset_ = rounddown_offset;
-    buffer_.Size(static_cast<size_t>(chunk_len) + result.size());
-  }
+  buffer_offset_ = rounddown_offset;
+  buffer_.Size(static_cast<size_t>(chunk_len) + result.size());
   return s;
 }
 
-bool FilePrefetchBuffer::TryReadFromCache(uint64_t offset, size_t n,
-                                          Slice* result, bool for_compaction) {
+bool FilePrefetchBuffer::TryReadFromCache(const IOOptions& opts,
+                                          uint64_t offset, size_t n,
+                                          Slice* result, Status* status,
+                                          bool for_compaction) {
   if (track_min_offset_ && offset < min_offset_read_) {
     min_offset_read_ = static_cast<size_t>(offset);
   }
@@ -114,7 +119,7 @@ bool FilePrefetchBuffer::TryReadFromCache(uint64_t offset, size_t n,
   }
 
   // If the buffer contains only a few of the requested bytes:
-  //    If readahead is enabled: prefetch the remaining bytes + readadhead bytes
+  //    If readahead is enabled: prefetch the remaining bytes + readahead bytes
   //        and satisfy the request.
   //    If readahead is not enabled: return false.
   if (offset + n > buffer_offset_ + buffer_.CurrentSize()) {
@@ -123,12 +128,37 @@ bool FilePrefetchBuffer::TryReadFromCache(uint64_t offset, size_t n,
       assert(max_readahead_size_ >= readahead_size_);
       Status s;
       if (for_compaction) {
-        s = Prefetch(file_reader_, offset, std::max(n, readahead_size_),
+        s = Prefetch(opts, file_reader_, offset, std::max(n, readahead_size_),
                      for_compaction);
       } else {
-        s = Prefetch(file_reader_, offset, n + readahead_size_, for_compaction);
+        if (implicit_auto_readahead_) {
+          // Prefetch only if this read is sequential otherwise reset
+          // readahead_size_ to initial value.
+          if (!IsBlockSequential(offset)) {
+            UpdateReadPattern(offset, n);
+            ResetValues();
+            // Ignore status as Prefetch is not called.
+            s.PermitUncheckedError();
+            return false;
+          }
+          num_file_reads_++;
+          if (num_file_reads_ <= kMinNumFileReadsToStartAutoReadahead) {
+            UpdateReadPattern(offset, n);
+            // Ignore status as Prefetch is not called.
+            s.PermitUncheckedError();
+            return false;
+          }
+        }
+        s = Prefetch(opts, file_reader_, offset, n + readahead_size_,
+                     for_compaction);
       }
       if (!s.ok()) {
+        if (status) {
+          *status = s;
+        }
+#ifndef NDEBUG
+        IGNORE_STATUS_IF_ERROR(s);
+#endif
         return false;
       }
       readahead_size_ = std::min(max_readahead_size_, readahead_size_ * 2);
@@ -136,7 +166,7 @@ bool FilePrefetchBuffer::TryReadFromCache(uint64_t offset, size_t n,
       return false;
     }
   }
-
+  UpdateReadPattern(offset, n);
   uint64_t offset_in_buffer = offset - buffer_offset_;
   *result = Slice(buffer_.BufferStart() + offset_in_buffer, n);
   return true;

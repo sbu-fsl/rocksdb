@@ -8,7 +8,6 @@
 #include <algorithm>
 #include <cinttypes>
 #include <cstdio>
-#include "port/likely.h"
 #include "rocksdb/statistics.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -105,6 +104,12 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {COMPACT_READ_BYTES, "rocksdb.compact.read.bytes"},
     {COMPACT_WRITE_BYTES, "rocksdb.compact.write.bytes"},
     {FLUSH_WRITE_BYTES, "rocksdb.flush.write.bytes"},
+    {COMPACT_READ_BYTES_MARKED, "rocksdb.compact.read.marked.bytes"},
+    {COMPACT_READ_BYTES_PERIODIC, "rocksdb.compact.read.periodic.bytes"},
+    {COMPACT_READ_BYTES_TTL, "rocksdb.compact.read.ttl.bytes"},
+    {COMPACT_WRITE_BYTES_MARKED, "rocksdb.compact.write.marked.bytes"},
+    {COMPACT_WRITE_BYTES_PERIODIC, "rocksdb.compact.write.periodic.bytes"},
+    {COMPACT_WRITE_BYTES_TTL, "rocksdb.compact.write.ttl.bytes"},
     {NUMBER_DIRECT_LOAD_TABLE_PROPERTIES,
      "rocksdb.number.direct.load.table.properties"},
     {NUMBER_SUPERVERSION_ACQUIRES, "rocksdb.number.superversion_acquires"},
@@ -184,6 +189,22 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {BLOCK_CACHE_DATA_ADD_REDUNDANT, "rocksdb.block.cache.data.add.redundant"},
     {BLOCK_CACHE_COMPRESSION_DICT_ADD_REDUNDANT,
      "rocksdb.block.cache.compression.dict.add.redundant"},
+    {FILES_MARKED_TRASH, "rocksdb.files.marked.trash"},
+    {FILES_DELETED_IMMEDIATELY, "rocksdb.files.deleted.immediately"},
+    {ERROR_HANDLER_BG_ERROR_COUNT, "rocksdb.error.handler.bg.errro.count"},
+    {ERROR_HANDLER_BG_IO_ERROR_COUNT,
+     "rocksdb.error.handler.bg.io.errro.count"},
+    {ERROR_HANDLER_BG_RETRYABLE_IO_ERROR_COUNT,
+     "rocksdb.error.handler.bg.retryable.io.errro.count"},
+    {ERROR_HANDLER_AUTORESUME_COUNT, "rocksdb.error.handler.autoresume.count"},
+    {ERROR_HANDLER_AUTORESUME_RETRY_TOTAL_COUNT,
+     "rocksdb.error.handler.autoresume.retry.total.count"},
+    {ERROR_HANDLER_AUTORESUME_SUCCESS_COUNT,
+     "rocksdb.error.handler.autoresume.success.count"},
+    {MEMTABLE_PAYLOAD_BYTES_AT_FLUSH,
+     "rocksdb.memtable.payload.bytes.at.flush"},
+    {MEMTABLE_GARBAGE_BYTES_AT_FLUSH,
+     "rocksdb.memtable.garbage.bytes.at.flush"},
 };
 
 const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
@@ -235,6 +256,12 @@ const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
     {BLOB_DB_DECOMPRESSION_MICROS, "rocksdb.blobdb.decompression.micros"},
     {FLUSH_TIME, "rocksdb.db.flush.micros"},
     {SST_BATCH_SIZE, "rocksdb.sst.batch.size"},
+    {NUM_INDEX_AND_FILTER_BLOCKS_READ_PER_LEVEL,
+     "rocksdb.num.index.and.filter.blocks.read.per.level"},
+    {NUM_DATA_BLOCKS_READ_PER_LEVEL, "rocksdb.num.data.blocks.read.per.level"},
+    {NUM_SST_READ_PER_LEVEL, "rocksdb.num.sst.read.per.level"},
+    {ERROR_HANDLER_AUTORESUME_RETRY_COUNT,
+     "rocksdb.error.handler.autoresume.retry.count"},
 };
 
 std::shared_ptr<Statistics> CreateDBStatistics() {
@@ -321,11 +348,17 @@ uint64_t StatisticsImpl::getAndResetTickerCount(uint32_t tickerType) {
 }
 
 void StatisticsImpl::recordTick(uint32_t tickerType, uint64_t count) {
-  assert(tickerType < TICKER_ENUM_MAX);
-  per_core_stats_.Access()->tickers_[tickerType].fetch_add(
-      count, std::memory_order_relaxed);
-  if (stats_ && tickerType < TICKER_ENUM_MAX) {
-    stats_->recordTick(tickerType, count);
+  if (get_stats_level() <= StatsLevel::kExceptTickers) {
+    return;
+  }
+  if (tickerType < TICKER_ENUM_MAX) {
+    per_core_stats_.Access()->tickers_[tickerType].fetch_add(
+        count, std::memory_order_relaxed);
+    if (stats_) {
+      stats_->recordTick(tickerType, count);
+    }
+  } else {
+    assert(false);
   }
 }
 
