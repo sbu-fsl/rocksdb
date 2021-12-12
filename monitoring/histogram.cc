@@ -228,6 +228,10 @@ void HistogramStat::Data(HistogramData * const data) const {
   data->median = Median();
   data->percentile95 = Percentile(95);
   data->percentile99 = Percentile(99);
+  data->percentile995 = Percentile(99.5);
+  data->percentile999 = Percentile(99.9);
+  data->percentile9999 = Percentile(99.99);
+  data->percentile99999 = Percentile(99.999);
   data->max = static_cast<double>(max());
   data->average = Average();
   data->standard_deviation = StandardDeviation();
