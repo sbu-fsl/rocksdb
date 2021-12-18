@@ -413,7 +413,7 @@ std::string StatisticsImpl::ToString() const {
     // should be provided correctly
     int ret =
         snprintf(buffer, kTmpStrBufferSize,
-                 "%s P50 : %f P95 : %f P99 : %f P99.5: %f P99.9: %f P99.99: %f P99.999 %f P100 : %f COUNT : %" PRIu64
+                 "%s P50 : %f P95 : %f P99 : %f P99.5 : %f P99.9 : %f P99.99 : %f P99.999 : %f P100 : %f COUNT : %" PRIu64
                  " SUM : %" PRIu64 "\n",
                  h.second.c_str(), hData.median, hData.percentile95,
                  hData.percentile99, hData.percentile995, hData.percentile999,
